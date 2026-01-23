@@ -1,0 +1,176 @@
+# Trend Statistics - Full ESPHome configuration
+# Tracks trend reversal statistics from a source sensor and publishes each count
+# as a separate sensor. Replace the ADC source with your real sensor (DHT, etc.).
+
+substitutions:
+  name: trend-stats
+  wifi_ssid: "YourSSID"
+  wifi_password: "YourPassword"
+
+esphome:
+  name: ${name}
+  friendly_name: ${name}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# esp8266: use this instead of esp32 if needed; ADC pin: A0
+# esp8266:
+#   board: esp01_1m
+
+wifi:
+  ssid: "${wifi_ssid}"
+  password: "${wifi_password}"
+  ap:
+    ssid: "${name} Fallback"
+    password: "12345678"
+
+captive_portal:
+
+api:
+
+ota:
+
+logger:
+
+# ---------------------------------------------------------------------------
+# Globals: counters updated by the trend_stats filter, read by template sensors
+# ---------------------------------------------------------------------------
+globals:
+  - id: datapoint_count
+    type: int
+    initial_value: "0"
+  - id: reversal_count
+    type: int
+    initial_value: "0"
+  - id: double_reversal_count
+    type: int
+    initial_value: "0"
+  - id: non_reversal_count
+    type: int
+    initial_value: "0"
+  - id: flatline_count
+    type: int
+    initial_value: "0"
+
+# ---------------------------------------------------------------------------
+# Source sensor: replace with your real sensor (DHT, BME280, etc.)
+# ADC used here for a minimal config that works with just a board.
+# ESP32: pin 34; ESP8266: use A0
+# ---------------------------------------------------------------------------
+sensor:
+  - platform: adc
+    pin: 34
+    name: "${name} Source"
+    id: source_sensor
+    update_interval: 1s
+    filters:
+      - lambda: |-
+          static float previous_value = NAN;
+          static int trend = 0;
+          static bool reversal_detected = false;
+          static float reversal_value = NAN;
+          float current_value = x;
+
+          if (isnan(previous_value)) {
+            previous_value = current_value;
+            trend = 0;
+            id(datapoint_count) = 1;
+            return current_value;
+          }
+
+          id(datapoint_count) = id(datapoint_count) + 1;
+
+          int current_trend = 0;
+          if (current_value > previous_value) {
+            current_trend = 1;
+          } else if (current_value < previous_value) {
+            current_trend = -1;
+          } else {
+            current_trend = trend;
+            id(flatline_count) = id(flatline_count) + 1;
+            previous_value = current_value;
+            return current_value;
+          }
+
+          bool trend_reversed = (trend != 0 && current_trend != 0 && trend != current_trend);
+
+          if (trend_reversed) {
+            id(reversal_count) = id(reversal_count) + 1;
+            if (reversal_detected) {
+              id(double_reversal_count) = id(double_reversal_count) + 1;
+              reversal_detected = false;
+            } else {
+              reversal_detected = true;
+              reversal_value = current_value;
+            }
+          } else {
+            if (trend != 0) {
+              id(non_reversal_count) = id(non_reversal_count) + 1;
+            }
+            reversal_detected = false;
+          }
+
+          previous_value = current_value;
+          trend = current_trend;
+          return current_value;
+
+  # -------------------------------------------------------------------------
+  # Published sensors: one per derived count
+  # -------------------------------------------------------------------------
+  - platform: template
+    name: "${name} Datapoints"
+    id: datapoints_sensor
+    unit_of_measurement: "pts"
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: |-
+      return (float) id(datapoint_count);
+
+  - platform: template
+    name: "${name} Reversals"
+    id: reversals_sensor
+    unit_of_measurement: "rev"
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: |-
+      return (float) id(reversal_count);
+
+  - platform: template
+    name: "${name} Double Reversals"
+    id: double_reversals_sensor
+    unit_of_measurement: "dbl"
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: |-
+      return (float) id(double_reversal_count);
+
+  - platform: template
+    name: "${name} Non-Reversals"
+    id: non_reversals_sensor
+    unit_of_measurement: "nrv"
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: |-
+      return (float) id(non_reversal_count);
+
+  - platform: template
+    name: "${name} Flatlines"
+    id: flatlines_sensor
+    unit_of_measurement: "flt"
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: |-
+      return (float) id(flatline_count);
+
+# ---------------------------------------------------------------------------
+# Notes: Set wifi_ssid and wifi_password in substitutions (or use !secret).
+#        Replace the ADC source with DHT, BME280, etc. and move the filter
+#        into that sensor's filters. ESP8266: use pin A0 for ADC.

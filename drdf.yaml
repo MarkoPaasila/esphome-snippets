@@ -1,0 +1,157 @@
+# Dynamic Reversals based Deadband Filter (DRDF) for ESPHome
+# This lambda filter implements a dynamic deadband that:
+# - Monitors trend changes (up/down/neutral)
+# - Detects consecutive reversals (up->down->up or down->up->down)
+# - Calculates absolute difference between reversal points
+# - Uses EMA (alpha=0.01) to smooth the reversal differences
+# - Sets deadband_size = EMA * multiplier (default: 3.82)
+# - Deadband size changes conservatively, so huge outliers don't make it too big
+# - Deadband (and thus output values) follows raw_values (sliding behavior) without latency
+# - Returns the midpoint between upper_bound and lower_bound
+
+# This filter adapts the deadband size based on observed reversal patterns
+# which possibly correspond to the actual noise characteristics of the sensor.
+
+# - Behavior:
+#   * Monitors trend: last value -> current value
+#   * Monitors trend changes: last trend -> this trend
+#   * On two consecutive reversals: calculates absolute difference
+#   * Updates EMA of reversal differences with alpha 0.01
+#   * deadband_size = EMA * multiplier (default: 3.82 should cover 99% of the reversals if they form a normal distribution)
+#   * Deadband slides with raw_values (like DDF)
+#   * Return value is always the center of the deadband: (upper_bound + lower_bound) / 2
+
+# ============================================================================
+# Lambda Filter Implementation
+# ============================================================================
+# Use this lambda filter in the 'filters:' section of any sensor.
+
+# Core DRDF Lambda Filter:
+# -----------------------
+- lambda: |-
+    static float upper_bound = NAN;
+    static float lower_bound = NAN;
+    static float previous_value = 0.0;
+    static int trend = 0; // -1 = down, 0 = neutral, 1 = up
+    static int previous_trend = 0; // Previous trend for detecting consecutive reversals
+    static float reversal_value = NAN; // Value at which last reversal occurred
+    static float ema_value = 0.0; // EMA of reversal differences (persistent global variable)
+    static float deadband_size = 0.0; // Dynamic deadband size (persistent global variable)
+    static float alpha = 0.01; // EMA smoothing factor
+    static float ema_multiplier = 3.82; // Multiplier for EMA to calculate deadband_size
+    static bool reversal_detected = false; // Track if we detected a reversal in previous step
+    
+    float current_value = x;
+    
+    // Uncomment to initialize global variables on first reading if global variables are used
+    // if (ema_value == 0.0 || deadband_size == 0.0) {
+    //   ema_value = id(ema_value);
+    //   deadband_size = id(deadband_size);
+    // }
+
+    // Initialize bounds on first reading
+    if (isnan(upper_bound) || isnan(lower_bound)) {
+      upper_bound = current_value + deadband_size / 2.0;
+      lower_bound = current_value - deadband_size / 2.0;
+      trend = 0;
+      previous_trend = 0;
+      return (upper_bound + lower_bound) / 2.0;
+    }
+    
+    // Determine current trend direction
+    if (current_value > previous_value) {
+      current_trend = 1; // Trending up
+    } else if (current_value < previous_value) {
+      current_trend = -1; // Trending down
+    } else {
+      current_trend = 0; // Maintain previous trend if no change
+    }
+    
+    // Check if trend has reversed (not neutral and different from previous trend)
+    bool trend_reversed = (trend != 0 && current_trend != 0 && trend != current_trend);
+    
+    // Detect consecutive reversals and update EMA
+    if (trend_reversed) {
+      if (reversal_detected) {
+        // Two consecutive reversals detected
+        // Calculate absolute difference between reversal points
+        float reversal_diff = fabs(current_value - reversal_value);
+        
+        // Update EMA: EMA = alpha * new_value + (1 - alpha) * old_EMA
+        if (ema_value == 0.0) {
+          // Initialize EMA with first value
+          ema_value = reversal_diff;
+        } else {
+          ema_value = alpha * reversal_diff + (1.0 - alpha) * ema_value;
+        }
+        
+        // Update deadband_size = EMA * multiplier
+        deadband_size = ema_value * ema_multiplier;
+        
+        // Store current reversal value for next potential pair
+        reversal_value = current_value;
+        // Keep reversal_detected = true so next reversal will be treated as second in pair
+      } else {
+        // First reversal in a potential pair
+        reversal_detected = true;
+        reversal_value = current_value;
+      }
+    } else {
+      // No reversal detected
+      reversal_detected = false;
+    }
+    
+    // Update bounds - always slide both bounds together when exceeded (deadband follows raw_values)
+    if (current_value > upper_bound) {
+      // Upper bound exceeded - slide both bounds together, keeping deadband unchanged
+      float excess = current_value - upper_bound;
+      upper_bound = current_value;
+      lower_bound += excess; // Slide lower bound up by same amount
+    } else if (current_value < lower_bound) {
+      // Lower bound exceeded - slide both bounds together, keeping deadband unchanged
+      float excess = lower_bound - current_value;
+      lower_bound = current_value;
+      upper_bound -= excess; // Slide upper bound down by same amount
+    }
+    // If no bound exceeded, do nothing (deadband_size remains unchanged)
+    
+    // Update state
+    previous_value = current_value;
+    previous_trend = trend;
+    trend = current_trend;
+    
+    return (upper_bound + lower_bound) / 2.0;
+
+# ============================================================================
+# Example Usage
+# ============================================================================
+
+# Example 1: Apply DRDF to a temperature sensor and persist important variables over reboots
+# global variables:
+# - ema_value
+#   restore_value: true
+# - deadband_size
+#   restore_value: true
+# sensor:
+#   - platform: dht
+#     temperature:
+#       name: "Living Room Temperature"
+#       id: temp_sensor
+#       filters:
+#         - filter_out: 0.0 # if the sensor tends to send useless values, use this before drdf to reduce noise
+#         - lambda: |-
+#             // add the above code here
+#         - heartbeat: 500  # or any other filters
+
+# ============================================================================
+# Notes
+# ============================================================================
+# 1. Don't use median, EMA, SWMA, throttle_average, quantile before drdf, as they will reduce accuracy and add latency.
+# 2. Don't use debounce, heartbeat, throttle, min, max, round, before drdf, as they will reduce accuracy
+# 3. You shouldn't need to use any smoothing filter after drdf.
+# 4. Filters that might be useful after drdf: calibrate, clamp, delta, heartbeat, throttle, max, min, multiply, offset, quantile, round.
+# 5. Calibration filters can be used before or after drdf.
+# 7. The deadband_size and ema_value will reset on reboot unless you convert them to global variables with persistence.
+# 8. The two things you might possibly want to tune are:
+#    - ema_multiplier: Smaller is tighter band resulting in more noise getting through.
+#    - alpha: Smaller is quicker
