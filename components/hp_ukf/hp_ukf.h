@@ -22,6 +22,23 @@ class HpUkfComponent : public PollingComponent {
   void set_outlet_humidity_sensor(sensor::Sensor *s) { outlet_humidity_ = s; }
   void set_track_temperature_derivatives(bool v) { track_derivatives_ = v; }
 
+  void set_filtered_inlet_temperature_sensor(sensor::Sensor *s) { filtered_inlet_temperature_ = s; }
+  void set_filtered_inlet_humidity_sensor(sensor::Sensor *s) { filtered_inlet_humidity_ = s; }
+  void set_filtered_outlet_temperature_sensor(sensor::Sensor *s) { filtered_outlet_temperature_ = s; }
+  void set_filtered_outlet_humidity_sensor(sensor::Sensor *s) { filtered_outlet_humidity_ = s; }
+  void set_filtered_inlet_temperature_derivative_sensor(sensor::Sensor *s) {
+    filtered_inlet_temperature_derivative_ = s;
+  }
+  void set_filtered_outlet_temperature_derivative_sensor(sensor::Sensor *s) {
+    filtered_outlet_temperature_derivative_ = s;
+  }
+  void set_filtered_inlet_humidity_derivative_sensor(sensor::Sensor *s) {
+    filtered_inlet_humidity_derivative_ = s;
+  }
+  void set_filtered_outlet_humidity_derivative_sensor(sensor::Sensor *s) {
+    filtered_outlet_humidity_derivative_ = s;
+  }
+
  protected:
   sensor::Sensor *inlet_temperature_{nullptr};
   sensor::Sensor *inlet_humidity_{nullptr};
@@ -29,18 +46,18 @@ class HpUkfComponent : public PollingComponent {
   sensor::Sensor *outlet_humidity_{nullptr};
   bool track_derivatives_{true};
 
+  sensor::Sensor *filtered_inlet_temperature_{nullptr};
+  sensor::Sensor *filtered_inlet_humidity_{nullptr};
+  sensor::Sensor *filtered_outlet_temperature_{nullptr};
+  sensor::Sensor *filtered_outlet_humidity_{nullptr};
+  sensor::Sensor *filtered_inlet_temperature_derivative_{nullptr};
+  sensor::Sensor *filtered_outlet_temperature_derivative_{nullptr};
+  sensor::Sensor *filtered_inlet_humidity_derivative_{nullptr};
+  sensor::Sensor *filtered_outlet_humidity_derivative_{nullptr};
+
   HpUkfFilter filter_;
   uint32_t last_update_ms_{0};
   bool initialized_{false};
-
-  sensor::Sensor filtered_inlet_temperature_;
-  sensor::Sensor filtered_inlet_humidity_;
-  sensor::Sensor filtered_outlet_temperature_;
-  sensor::Sensor filtered_outlet_humidity_;
-  sensor::Sensor filtered_inlet_temperature_derivative_;
-  sensor::Sensor filtered_outlet_temperature_derivative_;
-  sensor::Sensor filtered_inlet_humidity_derivative_;
-  sensor::Sensor filtered_outlet_humidity_derivative_;
 };
 
 }  // namespace hp_ukf

@@ -41,74 +41,26 @@ void HpUkfComponent::setup() {
     P0[i * n + i] = 1.0f;
   filter_.set_initial_state(x0, P0);
 
-  filtered_inlet_temperature_.set_name("Filtered Inlet Temperature");
-  filtered_inlet_temperature_.set_unit_of_measurement("°C");
-  filtered_inlet_temperature_.set_device_class("temperature");
-  filtered_inlet_temperature_.set_state_class(sensor::STATE_CLASS_MEASUREMENT);
-  filtered_inlet_temperature_.set_accuracy_decimals(2);
-  App.register_sensor(&filtered_inlet_temperature_);
-
-  filtered_inlet_humidity_.set_name("Filtered Inlet Humidity");
-  filtered_inlet_humidity_.set_unit_of_measurement("%");
-  filtered_inlet_humidity_.set_device_class("humidity");
-  filtered_inlet_humidity_.set_state_class(sensor::STATE_CLASS_MEASUREMENT);
-  filtered_inlet_humidity_.set_accuracy_decimals(1);
-  App.register_sensor(&filtered_inlet_humidity_);
-
-  filtered_outlet_temperature_.set_name("Filtered Outlet Temperature");
-  filtered_outlet_temperature_.set_unit_of_measurement("°C");
-  filtered_outlet_temperature_.set_device_class("temperature");
-  filtered_outlet_temperature_.set_state_class(sensor::STATE_CLASS_MEASUREMENT);
-  filtered_outlet_temperature_.set_accuracy_decimals(2);
-  App.register_sensor(&filtered_outlet_temperature_);
-
-  filtered_outlet_humidity_.set_name("Filtered Outlet Humidity");
-  filtered_outlet_humidity_.set_unit_of_measurement("%");
-  filtered_outlet_humidity_.set_device_class("humidity");
-  filtered_outlet_humidity_.set_state_class(sensor::STATE_CLASS_MEASUREMENT);
-  filtered_outlet_humidity_.set_accuracy_decimals(1);
-  App.register_sensor(&filtered_outlet_humidity_);
-
-  filtered_inlet_temperature_derivative_.set_name("Filtered Inlet Temperature Derivative");
-  filtered_inlet_temperature_derivative_.set_unit_of_measurement("°C/s");
-  filtered_inlet_temperature_derivative_.set_device_class("temperature");
-  filtered_inlet_temperature_derivative_.set_state_class(sensor::STATE_CLASS_MEASUREMENT);
-  filtered_inlet_temperature_derivative_.set_accuracy_decimals(3);
-  App.register_sensor(&filtered_inlet_temperature_derivative_);
-
-  filtered_outlet_temperature_derivative_.set_name("Filtered Outlet Temperature Derivative");
-  filtered_outlet_temperature_derivative_.set_unit_of_measurement("°C/s");
-  filtered_outlet_temperature_derivative_.set_device_class("temperature");
-  filtered_outlet_temperature_derivative_.set_state_class(sensor::STATE_CLASS_MEASUREMENT);
-  filtered_outlet_temperature_derivative_.set_accuracy_decimals(3);
-  App.register_sensor(&filtered_outlet_temperature_derivative_);
-
-  filtered_inlet_humidity_derivative_.set_name("Filtered Inlet Humidity Derivative");
-  filtered_inlet_humidity_derivative_.set_unit_of_measurement("%/s");
-  filtered_inlet_humidity_derivative_.set_device_class("humidity");
-  filtered_inlet_humidity_derivative_.set_state_class(sensor::STATE_CLASS_MEASUREMENT);
-  filtered_inlet_humidity_derivative_.set_accuracy_decimals(4);
-  App.register_sensor(&filtered_inlet_humidity_derivative_);
-
-  filtered_outlet_humidity_derivative_.set_name("Filtered Outlet Humidity Derivative");
-  filtered_outlet_humidity_derivative_.set_unit_of_measurement("%/s");
-  filtered_outlet_humidity_derivative_.set_device_class("humidity");
-  filtered_outlet_humidity_derivative_.set_state_class(sensor::STATE_CLASS_MEASUREMENT);
-  filtered_outlet_humidity_derivative_.set_accuracy_decimals(4);
-  App.register_sensor(&filtered_outlet_humidity_derivative_);
-
   // Publish initial state so sensors show values immediately (avoids NaN/unknown
   // before first update and when source sensors haven't reported yet).
   const float *x = filter_.get_state();
-  filtered_inlet_temperature_.publish_state(x[0]);
-  filtered_inlet_humidity_.publish_state(x[1]);
-  filtered_outlet_temperature_.publish_state(x[2]);
-  filtered_outlet_humidity_.publish_state(x[3]);
+  if (filtered_inlet_temperature_)
+    filtered_inlet_temperature_->publish_state(x[0]);
+  if (filtered_inlet_humidity_)
+    filtered_inlet_humidity_->publish_state(x[1]);
+  if (filtered_outlet_temperature_)
+    filtered_outlet_temperature_->publish_state(x[2]);
+  if (filtered_outlet_humidity_)
+    filtered_outlet_humidity_->publish_state(x[3]);
   if (track_derivatives_) {
-    filtered_inlet_temperature_derivative_.publish_state(x[4]);
-    filtered_outlet_temperature_derivative_.publish_state(x[5]);
-    filtered_inlet_humidity_derivative_.publish_state(x[6]);
-    filtered_outlet_humidity_derivative_.publish_state(x[7]);
+    if (filtered_inlet_temperature_derivative_)
+      filtered_inlet_temperature_derivative_->publish_state(x[4]);
+    if (filtered_outlet_temperature_derivative_)
+      filtered_outlet_temperature_derivative_->publish_state(x[5]);
+    if (filtered_inlet_humidity_derivative_)
+      filtered_inlet_humidity_derivative_->publish_state(x[6]);
+    if (filtered_outlet_humidity_derivative_)
+      filtered_outlet_humidity_derivative_->publish_state(x[7]);
   }
 
   last_update_ms_ = millis();
@@ -140,23 +92,23 @@ void HpUkfComponent::update() {
   const float *x = filter_.get_state();
   // Only publish finite values so we don't overwrite with NaN (e.g. when source
   // sensors haven't reported yet or filter is still converging).
-  if (std::isfinite(x[0]))
-    filtered_inlet_temperature_.publish_state(x[0]);
-  if (std::isfinite(x[1]))
-    filtered_inlet_humidity_.publish_state(x[1]);
-  if (std::isfinite(x[2]))
-    filtered_outlet_temperature_.publish_state(x[2]);
-  if (std::isfinite(x[3]))
-    filtered_outlet_humidity_.publish_state(x[3]);
+  if (filtered_inlet_temperature_ && std::isfinite(x[0]))
+    filtered_inlet_temperature_->publish_state(x[0]);
+  if (filtered_inlet_humidity_ && std::isfinite(x[1]))
+    filtered_inlet_humidity_->publish_state(x[1]);
+  if (filtered_outlet_temperature_ && std::isfinite(x[2]))
+    filtered_outlet_temperature_->publish_state(x[2]);
+  if (filtered_outlet_humidity_ && std::isfinite(x[3]))
+    filtered_outlet_humidity_->publish_state(x[3]);
   if (track_derivatives_) {
-    if (std::isfinite(x[4]))
-      filtered_inlet_temperature_derivative_.publish_state(x[4]);
-    if (std::isfinite(x[5]))
-      filtered_outlet_temperature_derivative_.publish_state(x[5]);
-    if (std::isfinite(x[6]))
-      filtered_inlet_humidity_derivative_.publish_state(x[6]);
-    if (std::isfinite(x[7]))
-      filtered_outlet_humidity_derivative_.publish_state(x[7]);
+    if (filtered_inlet_temperature_derivative_ && std::isfinite(x[4]))
+      filtered_inlet_temperature_derivative_->publish_state(x[4]);
+    if (filtered_outlet_temperature_derivative_ && std::isfinite(x[5]))
+      filtered_outlet_temperature_derivative_->publish_state(x[5]);
+    if (filtered_inlet_humidity_derivative_ && std::isfinite(x[6]))
+      filtered_inlet_humidity_derivative_->publish_state(x[6]);
+    if (filtered_outlet_humidity_derivative_ && std::isfinite(x[7]))
+      filtered_outlet_humidity_derivative_->publish_state(x[7]);
   }
 }
 
