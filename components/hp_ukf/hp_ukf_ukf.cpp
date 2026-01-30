@@ -8,26 +8,26 @@ namespace hp_ukf {
 void HpUkfFilter::set_state_dimension(int n) {
   n_ = (n == 4 || n == 8) ? n : 8;
   update_weights();
-  // Default process noise: small for T/RH, larger for derivatives (random walk).
+  // Default process noise (from fd25 EM-converged values); derivatives unchanged.
   for (int i = 0; i < n_ * n_; i++)
     Q_[i] = 0.0f;
-  Q_[0 * n_ + 0] = 1e-5f;   // T_in
-  Q_[1 * n_ + 1] = 1e-4f;   // RH_in
-  Q_[2 * n_ + 2] = 1e-5f;   // T_out
-  Q_[3 * n_ + 3] = 1e-4f;   // RH_out
+  Q_[0 * n_ + 0] = 0.000337f;   // T_in °C²
+  Q_[1 * n_ + 1] = 0.000183f;   // RH_in %²
+  Q_[2 * n_ + 2] = 0.000829f;   // T_out °C²
+  Q_[3 * n_ + 3] = 0.001065f;   // RH_out %²
   if (n_ >= 8) {
-    Q_[4 * n_ + 4] = 0.01f;  // dT_in
-    Q_[5 * n_ + 5] = 0.01f;  // dT_out
+    Q_[4 * n_ + 4] = 0.01f;   // dT_in
+    Q_[5 * n_ + 5] = 0.01f;   // dT_out
     Q_[6 * n_ + 6] = 0.001f;  // dRH_in
     Q_[7 * n_ + 7] = 0.001f;  // dRH_out
   }
-  // Default measurement noise: typical sensor accuracy.
+  // Default measurement noise (from fd25 EM-converged values).
   for (int i = 0; i < M * M; i++)
     R_[i] = 0.0f;
-  R_[0 * M + 0] = 0.3f * 0.3f;   // T_in
-  R_[1 * M + 1] = 2.0f * 2.0f;   // RH_in
-  R_[2 * M + 2] = 0.3f * 0.3f;   // T_out
-  R_[3 * M + 3] = 2.0f * 2.0f;   // RH_out
+  R_[0 * M + 0] = 0.025809f;   // T_in °C²
+  R_[1 * M + 1] = 0.189530f;   // RH_in %²
+  R_[2 * M + 2] = 0.000058f;   // T_out °C²
+  R_[3 * M + 3] = 0.000374f;   // RH_out %²
 }
 
 void HpUkfFilter::update_weights() {
