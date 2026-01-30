@@ -1,0 +1,475 @@
+# ESPHome Custom Component Development Rules
+
+## Project Context
+This is an ESPHome project for developing custom components for ESP32/ESP8266 microcontrollers.
+ESPHome is a system for controlling ESP boards with simple YAML configuration files that generate C++ code.
+
+## File Structure Patterns
+
+### Standard Project Layout
+```
+project/
+├── custom_components/
+│   └── component_name/
+│       ├── __init__.py          # Python component registration
+│       ├── component.h          # C++ header
+│       ├── component.cpp        # C++ implementation
+│       ├── sensor.py            # Optional: sensor platform
+│       ├── binary_sensor.py     # Optional: binary sensor platform
+│       └── switch.py            # Optional: switch platform
+├── config.yaml                  # Main ESPHome config
+└── secrets.yaml                 # WiFi credentials, API keys
+```
+
+## C++ Development Rules
+
+### Header Files (.h)
+- Always use `#pragma once` instead of include guards
+- Namespace structure: `esphome::component_name`
+- Inherit from appropriate base classes:
+  - `Component` - base for all components
+  - `PollingComponent` - components that update periodically
+  - `Sensor` - for sensor values
+  - `BinarySensor` - for binary state sensors
+  - `Switch` - for controllable switches
+  - `Climate` - for climate control devices
+  - `Cover` - for covers/blinds
+  - `Light` - for lighting devices
+
+### Required C++ Includes
+```cpp
+#include "esphome/core/component.h"
+#include "esphome/core/log.h"
+#include "esphome/core/hal.h"
+#include "esphome/core/helpers.h"
+#include "esphome/core/application.h"
+```
+
+### Component Lifecycle Methods
+Always implement these in order:
+1. `setup()` - Initialize hardware, called once at boot
+2. `loop()` - Called repeatedly, keep short (<50ms)
+3. `dump_config()` - Log configuration at startup
+4. `get_setup_priority()` - Control initialization order
+
+Setup priority constants (highest to lowest):
+- `setup_priority::HARDWARE` (800) - GPIO, I2C, SPI initialization
+- `setup_priority::DATA` (600) - Sensors, outputs
+- `setup_priority::LATE` (100) - Default for most components
+- `setup_priority::AFTER_WIFI` (-100) - Requires network
+- `setup_priority::AFTER_CONNECTION` (-200) - Requires API connection
+
+### Logging Best Practices
+```cpp
+static const char *TAG = "component_name";
+
+// In setup():
+ESP_LOGCONFIG(TAG, "Setting up Component...");
+ESP_LOGCONFIG(TAG, "  Pin: %d", this->pin_);
+
+// Debug messages (verbose):
+ESP_LOGD(TAG, "Reading sensor value: %.2f", value);
+
+// Info messages (important state changes):
+ESP_LOGI(TAG, "Connection established");
+
+// Warnings (recoverable errors):
+ESP_LOGW(TAG, "Sensor read failed, retrying...");
+
+// Errors (critical issues):
+ESP_LOGE(TAG, "Fatal error: %s", error_msg);
+
+// Verbose (very detailed debugging):
+ESP_LOGV(TAG, "Byte received: 0x%02X", byte);
+```
+
+### Memory Management
+- Prefer stack allocation over heap when possible
+- Use `std::unique_ptr<>` for owned heap objects
+- Use `std::vector<>` for dynamic arrays
+- Avoid `new`/`delete`, use smart pointers
+- Be mindful of SRAM limitations (ESP8266: ~40KB, ESP32: ~320KB)
+- Use single-precision **float** or integers only—no **double**. Use `1.0f`-style literals for float; avoid bare `1.0` when the value is used as float (it is double in C++).
+
+### Timing and Delays
+- NEVER use `delay()` in `loop()` - blocks entire system
+- Use `set_timeout()` for one-time delayed actions
+- Use `set_interval()` for repeated actions
+- Use `PollingComponent` for regular updates
+- Keep `loop()` execution under 50ms
+
+Example:
+```cpp
+void MyComponent::setup() {
+  // One-time delay
+  this->set_timeout(5000, [this]() {
+    ESP_LOGI(TAG, "5 seconds elapsed");
+  });
+  
+  // Repeated action every 10 seconds
+  this->set_interval(10000, [this]() {
+    this->update_sensor();
+  });
+}
+```
+
+### GPIO and Hardware Access
+```cpp
+// Use ESPHome's HAL abstraction
+InternalGPIOPin *pin_;
+
+// Configure in setup():
+this->pin_->setup();
+this->pin_->pin_mode(gpio::FLAG_OUTPUT);
+this->pin_->digital_write(true);
+
+// Read input:
+bool state = this->pin_->digital_read();
+```
+
+### Communication Protocols
+
+#### I2C
+```cpp
+#include "esphome/components/i2c/i2c.h"
+
+class MyI2CDevice : public Component, public i2c::I2CDevice {
+  void setup() override {
+    // Write single byte
+    this->write_byte(0x00, 0xFF);
+    
+    // Read register
+    uint8_t value;
+    this->read_byte(0x00, &value);
+    
+    // Write multiple bytes
+    this->write_bytes(0x00, {0x01, 0x02, 0x03});
+  }
+};
+```
+
+#### SPI
+```cpp
+#include "esphome/components/spi/spi.h"
+
+class MySPIDevice : public Component, public spi::SPIDevice<> {
+  void setup() override {
+    this->spi_setup();
+    
+    this->enable();
+    this->write_byte(0xAA);
+    uint8_t data = this->read_byte();
+    this->disable();
+  }
+};
+```
+
+#### UART/Serial
+```cpp
+#include "esphome/components/uart/uart.h"
+
+class MyUARTDevice : public Component, public uart::UARTDevice {
+  void loop() override {
+    while (this->available()) {
+      uint8_t byte;
+      this->read_byte(&byte);
+      // Process byte
+    }
+  }
+};
+```
+
+### Publishing Sensor Data
+```cpp
+#include "esphome/components/sensor/sensor.h"
+
+class MySensor : public PollingComponent, public sensor::Sensor {
+ public:
+  void update() override {
+    float value = this->read_sensor();
+    
+    // Publish value
+    this->publish_state(value);
+  }
+  
+  // Set update interval in constructor or config
+  MySensor() : PollingComponent(15000) {}  // 15 second updates
+};
+```
+
+### State Management for Switches/Binary Sensors
+```cpp
+// For switches:
+this->publish_state(true);  // Turn on
+this->publish_state(false); // Turn off
+
+// For binary sensors:
+this->publish_state(true);  // ON/Detected
+this->publish_state(false); // OFF/Not detected
+```
+
+## Python Configuration Rules
+
+### Component Registration (__init__.py)
+```python
+import esphome.codegen as cg
+import esphome.config_validation as cv
+from esphome.const import (
+    CONF_ID,
+    CONF_PIN,
+    CONF_UPDATE_INTERVAL,
+)
+from esphome.components import sensor
+from esphome import pins
+
+# Create namespace
+my_component_ns = cg.esphome_ns.namespace('my_component')
+MyComponent = my_component_ns.class_('MyComponent', cg.PollingComponent)
+
+# Configuration schema
+CONFIG_SCHEMA = cv.Schema({
+    cv.GenerateID(): cv.declare_id(MyComponent),
+    cv.Required(CONF_PIN): pins.gpio_output_pin_schema,
+    cv.Optional(CONF_UPDATE_INTERVAL, default="60s"): cv.update_interval,
+}).extend(cv.COMPONENT_SCHEMA)
+
+async def to_code(config):
+    var = cg.new_Pvariable(config[CONF_ID])
+    await cg.register_component(var, config)
+    
+    # Configure pin
+    pin = await cg.gpio_pin_expression(config[CONF_PIN])
+    cg.add(var.set_pin(pin))
+```
+
+### Sensor Platform (sensor.py)
+```python
+from esphome.components import sensor
+import esphome.config_validation as cv
+import esphome.codegen as cg
+from esphome.const import (
+    CONF_ID,
+    STATE_CLASS_MEASUREMENT,
+    UNIT_CELSIUS,
+    DEVICE_CLASS_TEMPERATURE,
+)
+from . import my_component_ns, MyComponent
+
+MyComponentSensor = my_component_ns.class_('MyComponentSensor', sensor.Sensor, cg.PollingComponent)
+
+CONFIG_SCHEMA = sensor.sensor_schema(
+    MyComponentSensor,
+    unit_of_measurement=UNIT_CELSIUS,
+    accuracy_decimals=1,
+    device_class=DEVICE_CLASS_TEMPERATURE,
+    state_class=STATE_CLASS_MEASUREMENT,
+).extend(cv.polling_component_schema("60s"))
+
+async def to_code(config):
+    var = await sensor.new_sensor(config)
+    await cg.register_component(var, config)
+```
+
+### Common Configuration Patterns
+```python
+# Required vs Optional fields
+cv.Required(CONF_PIN): pins.gpio_output_pin_schema,
+cv.Optional(CONF_NAME, default="My Sensor"): cv.string,
+
+# Validation
+cv.Optional(CONF_THRESHOLD, default=50): cv.int_range(min=0, max=100),
+cv.Optional(CONF_TEMPERATURE): cv.temperature,
+cv.Optional(CONF_VOLTAGE): cv.voltage,
+
+# Time intervals
+cv.Optional(CONF_UPDATE_INTERVAL, default="60s"): cv.update_interval,
+cv.Optional(CONF_TIMEOUT, default="5s"): cv.positive_time_period_milliseconds,
+
+# Enums
+CONF_MODE = "mode"
+Mode = my_component_ns.enum("Mode")
+MODES = {
+    "AUTO": Mode.MODE_AUTO,
+    "MANUAL": Mode.MODE_MANUAL,
+}
+cv.Optional(CONF_MODE, default="AUTO"): cv.enum(MODES, upper=True),
+```
+
+## Common Patterns and Anti-Patterns
+
+### ✅ DO:
+- Use `PollingComponent` for sensors that update regularly
+- Implement `dump_config()` to log configuration at startup
+- Use ESPHome's logging macros (ESP_LOG*)
+- Handle errors gracefully with warnings/errors
+- Use `this->mark_failed()` for fatal setup errors
+- Check `this->is_failed()` before operations
+- Use lambdas for callbacks and delayed actions
+- Validate inputs in Python config
+- Use proper units and device classes for sensors
+
+### ❌ DON'T:
+- Use `delay()` in `loop()` or anywhere else
+- Block in `loop()` for more than 50ms
+- Use `Serial.print()` - use ESP_LOG* instead
+- Mix Arduino and ESPHome GPIO functions
+- Allocate large buffers on stack
+- Use raw pointers when smart pointers are available
+- Forget to call parent class methods
+- Use floating point math unless necessary (slower on ESP)
+
+## Code Generation with cg (codegen)
+
+### Common cg operations:
+```python
+# Create variable
+var = cg.new_Pvariable(config[CONF_ID])
+
+# Set properties
+cg.add(var.set_pin(pin))
+cg.add(var.set_threshold(config[CONF_THRESHOLD]))
+
+# Add code to setup
+cg.add(var.setup())
+
+# Add library dependency
+cg.add_library("SomeLibrary", "1.0.0")
+
+# Add build flag
+cg.add_build_flag("-DSOME_FLAG")
+
+# Include files
+cg.add_global(cg.RawExpression('#include "some_header.h"'))
+```
+
+## Testing and Debugging
+
+### Validation
+```bash
+esphome config config.yaml
+```
+
+### Compilation
+```bash
+esphome compile config.yaml
+```
+
+### View generated C++
+```bash
+esphome config config.yaml --show-generated
+```
+
+### Logging
+```bash
+esphome logs config.yaml
+```
+
+### OTA Updates
+```bash
+esphome upload config.yaml --device 192.168.1.100
+```
+
+## Performance Considerations
+
+- ESP8266: 80MHz CPU, ~40KB usable RAM, limited stack
+- ESP32: 240MHz CPU, ~320KB usable RAM, dual core
+- Flash writes are slow - minimize EEPROM/preferences writes
+- WiFi operations consume significant power
+- Keep string literals in PROGMEM using `F()` macro or PSTR
+
+## Common Component Types
+
+### Sensor (numerical value)
+- Inherits: `sensor::Sensor`, `PollingComponent`
+- Use: Temperature, humidity, pressure, distance, etc.
+- Publishes: `float` values
+
+### Binary Sensor (on/off state)
+- Inherits: `binary_sensor::BinarySensor`, `Component`
+- Use: Motion detection, door/window contacts, buttons
+- Publishes: `bool` values
+
+### Switch (controllable on/off)
+- Inherits: `switch_::Switch`, `Component`
+- Use: Relays, LED controls, enable/disable features
+- Implements: `write_state(bool state)`
+
+### Text Sensor (string values)
+- Inherits: `text_sensor::TextSensor`, `PollingComponent`
+- Use: Status messages, version info, text data
+- Publishes: `std::string` values
+
+## Error Handling Pattern
+```cpp
+void MyComponent::setup() {
+  ESP_LOGCONFIG(TAG, "Setting up...");
+  
+  if (!this->initialize_hardware()) {
+    ESP_LOGE(TAG, "Failed to initialize hardware");
+    this->mark_failed();
+    return;
+  }
+  
+  ESP_LOGCONFIG(TAG, "Setup complete");
+}
+
+void MyComponent::loop() {
+  if (this->is_failed()) {
+    return;  // Skip if setup failed
+  }
+  
+  // Normal operation
+}
+```
+
+## Configuration Example Template
+```yaml
+esphome:
+  name: my-device
+  platform: ESP32
+  board: esp32dev
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+logger:
+  level: DEBUG  # VERBOSE, DEBUG, INFO, WARN, ERROR
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  password: !secret ota_password
+
+external_components:
+  - source:
+      type: local
+      path: custom_components
+    components: [ my_component ]
+
+my_component:
+  id: my_device
+  pin: GPIO5
+  update_interval: 60s
+```
+
+## When Writing Code
+
+1. Start with the header file (.h) - define the interface
+2. Implement the CPP file (.cpp) - add functionality
+3. Create Python config (__init__.py) - expose to YAML
+4. Test incrementally with logging
+5. Validate config before compiling
+6. Use `esphome compile` to check for errors
+7. Upload and monitor logs
+
+## Documentation References
+
+When uncertain, suggest checking:
+- ESPHome Component Development: https://esphome.io/custom/custom_component.html
+- API Reference: https://esphome.io/api/index.html
+- Example Components: https://github.com/esphome/esphome/tree/dev/esphome/components
+
+Focus on writing clean, maintainable, well-logged code that follows ESPHome conventions.

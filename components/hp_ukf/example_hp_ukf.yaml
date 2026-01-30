@@ -1,0 +1,85 @@
+# Example ESPHome configuration using the hp_ukf external component.
+# Wire inlet/outlet temperature and humidity sensors to hp_ukf; the component
+# runs a time-discrete UKF and exposes filtered state and optional derivatives.
+#
+# Replace the template sensors below with your real sensors (e.g. DHT, HTU21D)
+# for inlet and outlet air.
+
+substitutions:
+  name: hp-ukf-example
+
+# Load the hp_ukf external component from the local components folder
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [ hp_ukf ]
+
+# Example input sensors (replace with your hardware sensors, e.g. DHT/HTU21D)
+sensor:
+  - platform: template
+    id: inlet_temperature
+    name: "${name} Inlet Temperature"
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 2
+    update_interval: 1s
+    lambda: |-
+      return 20.0f;
+  - platform: template
+    id: inlet_humidity
+    name: "${name} Inlet Humidity"
+    unit_of_measurement: "%"
+    device_class: humidity
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 1s
+    lambda: |-
+      return 50.0f;
+  - platform: template
+    id: outlet_temperature
+    name: "${name} Outlet Temperature"
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 2
+    update_interval: 1s
+    lambda: |-
+      return 22.0f;
+  - platform: template
+    id: outlet_humidity
+    name: "${name} Outlet Humidity"
+    unit_of_measurement: "%"
+    device_class: humidity
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 1s
+    lambda: |-
+      return 45.0f;
+
+# HP-UKF component: user provides the four sensors; UKF runs at update_interval.
+# Optional: EM auto-tune adapts process (Q) and measurement (R) noise with
+# separate forgetting factors for inlet (slower) vs outlet (faster dynamics).
+hp_ukf:
+  id: hp_ukf
+  update_interval: 1s
+  inlet_temperature: inlet_temperature
+  inlet_humidity: inlet_humidity
+  outlet_temperature: outlet_temperature
+  outlet_humidity: outlet_humidity
+  track_temperature_derivatives: true
+  em_autotune: true
+  em_lambda_q: 0.995
+  em_lambda_r_inlet: 0.998
+  em_lambda_r_outlet: 0.98
+  # Optional: expose tuned Q/R and lambdas as sensors (for verification/debug)
+  em_q_t_out:
+    name: "${name} EM Q T Out"
+  em_r_t_out:
+    name: "${name} EM R T Out"
+
+# The component exposes: Filtered Inlet/Outlet Temperature and Humidity,
+# and (if track_temperature_derivatives is true) Filtered Inlet/Outlet
+# Temperature Derivative (°C/s) and Filtered Inlet/Outlet Humidity Derivative (%/s).
+# With em_autotune, optional sensors for Q/R diagonals and lambdas can be added.
