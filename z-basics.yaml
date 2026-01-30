@@ -1,0 +1,54 @@
+esphome:
+  name: ${name}
+  
+wifi:
+  ssid: !secret ssid
+  password: !secret password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: ${name}
+    password: ${password}
+    manual_ip:
+      static_ip: 192.168.100.2
+      gateway: 192.168.100.1
+      subnet: 255.255.255.0
+      dns1: 8.8.8.8
+      dns2: 8.8.4.4
+
+captive_portal:
+
+# Enable logging
+logger:
+  level: DEBUG
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  password: !secret ota_password
+  platform: esphome
+
+web_server:
+  port: 80
+
+time:
+  - platform: homeassistant
+    id: my_time
+
+sensor:
+  - platform: wifi_signal
+    name: "${name} WiFi Signal"
+    update_interval: 1s
+    filters:
+      - median:
+          window_size: 10
+      - or:
+          - delta: 10
+          -  heartbeat: 600s
+  
+  - platform: uptime
+    type: timestamp
+    name: "${name} Startup Time"
